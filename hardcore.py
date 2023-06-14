@@ -15,6 +15,10 @@ YELLOW = "\033[33m"
 BLUE = "\033[34m"
 RESET = "\033[0m"
 
+FIRSTRUN = True
+
+DELETE_COUNT = 60
+
 operating_system = platform.system()
 
 allowed_death_entities = ["Named entity class", "entity class", "class_1646", "*"]
@@ -108,6 +112,28 @@ def check_eula_agreement():
         return False
 
 
+def updateMOTD(deaths):
+    file_path = "server.properties"
+    temp_file_path = "temp.properties"
+    hardcore_key = "motd=A Minecraft Server"
+    hardcore_new = f"motd=Deaths: {deaths}"
+
+    try:
+        with open(file_path, "r") as input_file, open(temp_file_path, "w") as temp_file:
+            for line in input_file:
+                if line.strip() == hardcore_key:
+                    line = hardcore_new + "\n"
+                temp_file.write(line)
+
+        # Replace the original file with the temporary file
+        os.replace(temp_file_path, file_path)
+        print(GREEN + "[+]\tMOTD has been updated." + RESET)
+
+    except FileNotFoundError:
+        print(RED + "[!]\tCould not find server.properties file." + RESET)
+        return False
+
+
 def check_and_create_run_file(operating_system):
     if operating_system == "Linux":
         run_file_path = "./run.sh"
@@ -174,6 +200,7 @@ def player_died(player):
         else:
             minecraft_process.stdin.write(f"kill {user}\n")
             minecraft_process.stdin.flush()
+
     minecraft_process.stdin.write(f"say {player} ruined it for everyone.\n")
     minecraft_process.stdin.flush()
     time.sleep(1)
@@ -252,12 +279,15 @@ def check_player_death():
 
 
 def getSeverOutput():
-    try:
-        line = q.get(timeout=1) 
-    except Empty:
-        return None
+    if not q.empty():
+        try:
+            line = q.get(timeout=0.1)
+        except Empty:
+            return None
+        else:
+            return line
     else:
-        return line
+        return None
 
 
 def reader(pipe, q):
@@ -266,133 +296,164 @@ def reader(pipe, q):
     pipe.close()
 
 
+def say(message):
+    minecraft_process.stdin.write(f"say {message}\n")
+    minecraft_process.stdin.flush()
+
+
 ####    START   ####
 def main():
-    deleteCountDown = 60
-    while True:
-        try:
-            check_player_death()
-        except KeyboardInterrupt:
-            print("\n\n" + RED + "[-]\tKeyboardInterrupt: Stopping server..." + RESET)
-            minecraft_process.stdin.write("stop\n")
-            minecraft_process.stdin.flush()
-            time.sleep(5)
-            minecraft_process.wait()
-            sys.exit(0)
+    global DELETE_COUNT
+    global FIRSTRUN
+    global usernames
 
+    try:
+        check_player_death()
+    except KeyboardInterrupt:
+        print("\n\n" + RED + "[-]\tKeyboardInterrupt: Stopping server..." + RESET)
+        minecraft_process.stdin.write("stop\n")
+        minecraft_process.stdin.flush()
+        time.sleep(5)
+        minecraft_process.wait()
+        sys.exit(0)
+
+    while True:
+        # Check if the chat q is empty and proccess all the chat logs
         while True:
-            while True:
-                line = getSeverOutput()
-                if line == None:
-                    break
+            line = getSeverOutput()
+            if line != None and line != "":
                 out = line.replace("\n", "")
                 print(YELLOW + out + RESET)
 
-                print(GREEN + f"[i]\tDeleting world in {deleteCountDown} seconds." + RESET)
-                if line:
-                    if "wait" in line:
-                        deleteCountDown += 120
+                if line and "[Not Secure]" not in line.strip():
+                    if "!wait" in line:
+                        DELETE_COUNT += 120
+                        say("Added 2 minutes to timer")
+                        say(f"Timer: {DELETE_COUNT}s")
+                    elif "!skip" in line:
+                        # gets the user who sent the message
+                        # and adds them to the skip list
+                        # then checks if more than half the users
+                        # have voted to skip
+                        line = line.split("[")[2].split(": ")[1]
+                        if line and line not in skip_list and line != "Server":
+                            skip_list.append(line)
+                            print(
+                                BLUE
+                                + f"[!]\t{line} voted to skip, votes: {len(skip_list)}/{len(usernames)}"
+                                + RESET
+                            )
+                            say(f"{str(line)} voted to skip")
+                            say(f"Votes: {len(skip_list)}/{len(usernames)}")
+                            if len(skip_list) >= len(usernames) / 2:
+                                say("Skipping...")
+                                print(GREEN + "[i]\tSkipping..." + RESET)
+                                DELETE_COUNT = 10
+                                break
 
-                        minecraft_process.stdin.write(f"say Added 2 minutes to timer\n")
-                        minecraft_process.stdin.flush()
-                        time.sleep(0.2)
-                        minecraft_process.stdin.write(f"say Timer: {deleteCountDown}s\n")
-                        minecraft_process.stdin.flush()
-
-            if deleteCountDown % 10 == 0 or deleteCountDown <= 10:
-                minecraft_process.stdin.write(f"say Timer: {deleteCountDown}s\n")
-                minecraft_process.stdin.flush()
-            time.sleep(1)
-            deleteCountDown -= 1
-            if deleteCountDown <= 0:
+                if DELETE_COUNT <= 0:
+                    break
+            else:
                 break
 
-        deleteCountDown = 60
-        # Wait for the server to shut down
-        minecraft_process.stdin.write("stop\n")
-        minecraft_process.stdin.flush()
-        minecraft_process.wait()
-        print(BLUE + "[-]\tServer stopped." + RESET)
+        if DELETE_COUNT % 10 == 0 or DELETE_COUNT <= 10:
+            minecraft_process.stdin.write(f"say Timer: {DELETE_COUNT}s\n")
+            minecraft_process.stdin.flush()
 
-        if FIRSTRUN == True:
-            enable_hardcore_mode()
-            FIRSTRUN = False
+        print(GREEN + f"[i]\tTimer: {DELETE_COUNT}s" + RESET)
 
-        # Delete the world directory
-        os.system(delete_command)
-        print(RED + "[!]\tDirectory 'world' deleted." + RESET)
-        save_stats_to_file(deaths)
-        print(RED + f"[i]\tSaved all the stats to file." + RESET)
         time.sleep(1)
+        DELETE_COUNT -= 1
+        if DELETE_COUNT <= 0:
+            break
 
+    DELETE_COUNT = 60
+    # Wait for the server to shut down
+    minecraft_process.stdin.write("stop\n")
+    minecraft_process.stdin.flush()
+    minecraft_process.wait()
+    print(BLUE + "[-]\tServer stopped." + RESET)
 
-if not pyuac.isUserAdmin():
-    print(RED + "Re-launching as admin!")
-    pyuac.runAsAdmin()
+    if FIRSTRUN:
+        enable_hardcore_mode()
+        FIRSTRUN = False
 
-FIRSTRUN = True
-deleteCountDown = 60
-usernames = []
-print(BLUE + "[i]\tReading stats from file." + RESET)
-deaths = read_stats_from_file()
-attempt_number = sum_of_deaths(deaths)
-print(GREEN + f"[i]\tThis is attempt number {attempt_number}." + RESET)
-time.sleep(2)
-
-# Determine the operating system
-if operating_system == "Linux":
-    minecraft_command = ["/bin/bash", "./run.sh"]
-    delete_command = "rm -rf world/"
-
-elif operating_system == "Windows":
-    minecraft_command = [
-        "run.bat",
-        "-u",
-    ]
-    delete_command = "rmdir /s /q world"
-
-else:
-    print(RED + "[!]\tUnsupported operating system." + RESET)
-    sys.exit(1)
-
-# check if the folder "/world" exists and deletes it if it does
-if os.path.isdir("world"):
-    print(BLUE + "[i]\tWorld folder exists, deleting it." + RESET)
+    # Delete the world directory
     os.system(delete_command)
-    print(BLUE + "[i]\tWorld folder deleted." + RESET)
+    print(RED + "[!]\tDirectory 'world' deleted." + RESET)
+    save_stats_to_file(deaths)
+    print(RED + f"[i]\tSaved all the stats to file." + RESET)
+    updateMOTD(f"A Minecraft Server")
+    time.sleep(1)
 
 
-# Check for the file first:
-check_and_create_run_file(operating_system)
+if __name__ == "__main__":
+    while True:
+        if not pyuac.isUserAdmin():
+            print(RED + "Re-launching as admin!")
+            pyuac.runAsAdmin()
 
-if check_eula_agreement() == False:
-    try:
-        os.system("rm eula.txt")
-    except:
-        pass
-    with open("eula.txt", "w") as eula:
-        eula.write("eula=true")
+        usernames = []
+        skip_list = []
+        print(BLUE + "[i]\tReading stats from file." + RESET)
+        deaths = read_stats_from_file()
+        attempt_number = sum_of_deaths(deaths)
+        print(GREEN + f"[i]\tThis is attempt number {attempt_number}." + RESET)
+        time.sleep(2)
 
-try:
-    enable_hardcore_mode()
-except Exception:
-    print(RED + "[!]\tFirst run detected!")
-    FIRSTRUN = True
+        # Determine the operating system
+        if operating_system == "Linux":
+            minecraft_command = ["/bin/bash", "./run.sh"]
+            delete_command = "rm -rf world/"
 
-# Restart the Minecraft server
-print(GREEN + "[+]\tStarting minecraft server\n\n\n" + RESET)
-minecraft_process = subprocess.Popen(
-    minecraft_command,
-    stdin=subprocess.PIPE,
-    stdout=subprocess.PIPE,
-    universal_newlines=True,
-    bufsize=1,
-)
-time.sleep(3)
-print(BLUE + "[SERVER@localhost]\tLooking for deaths now" + RESET)
-q = Queue()
-t = Thread(target=reader, args=(minecraft_process.stdout, q))
-t.daemon = True  # thread dies with the program
-t.start()
-print("Started thread")
-main()
+        elif operating_system == "Windows":
+            minecraft_command = [
+                "run.bat",
+                "-u",
+            ]
+            delete_command = "rmdir /s /q world"
+
+        else:
+            print(RED + "[!]\tUnsupported operating system." + RESET)
+            sys.exit(1)
+
+        # check if the folder "/world" exists and deletes it if it does
+        if os.path.isdir("world"):
+            print(BLUE + "[i]\tWorld folder exists, deleting it." + RESET)
+            os.system(delete_command)
+            print(BLUE + "[i]\tWorld folder deleted." + RESET)
+
+        # Check for the file first:
+        check_and_create_run_file(operating_system)
+
+        if check_eula_agreement() == False:
+            try:
+                os.system("rm eula.txt")
+            except:
+                pass
+            with open("eula.txt", "w") as eula:
+                eula.write("eula=true")
+
+        try:
+            enable_hardcore_mode()
+            updateMOTD(attempt_number)
+        except Exception:
+            print(RED + "[!]\tFirst run detected!")
+            FIRSTRUN = True
+
+        # Restart the Minecraft server
+        print(GREEN + "[+]\tStarting minecraft server\n\n\n" + RESET)
+        minecraft_process = subprocess.Popen(
+            minecraft_command,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            universal_newlines=True,
+            bufsize=1,
+        )
+        time.sleep(3)
+        print(BLUE + "[SERVER@localhost]\tLooking for deaths now" + RESET)
+        q = Queue()
+        t = Thread(target=reader, args=(minecraft_process.stdout, q))
+        t.daemon = True  # thread dies with the program
+        t.start()
+        main()
