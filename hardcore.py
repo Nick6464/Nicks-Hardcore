@@ -137,10 +137,10 @@ def updateMOTD(deaths):
 def check_and_create_run_file(operating_system):
     if operating_system == "Linux":
         run_file_path = "./run.sh"
-        run_file_content = "java -Xmx2048M -Xms1024M -jar server.jar nogui"
+        run_file_content = "java -Xmx8192M -Xms1024M -jar server.jar nogui"
     elif operating_system == "Windows":
         run_file_path = "run.bat"
-        run_file_content = "java -Xmx2048M -Xms1024M -jar server.jar nogui"
+        run_file_content = "java -Xmx8192M -Xms1024M -jar server.jar nogui"
     else:
         print(RED + "[!]\tUnsupported operating system." + RESET)
         return
@@ -418,10 +418,10 @@ if __name__ == "__main__":
             sys.exit(1)
 
         # check if the folder "/world" exists and deletes it if it does
-        if os.path.isdir("world"):
-            print(BLUE + "[i]\tWorld folder exists, deleting it." + RESET)
-            os.system(delete_command)
-            print(BLUE + "[i]\tWorld folder deleted." + RESET)
+        # if os.path.isdir("world"):
+        #     print(BLUE + "[i]\tWorld folder exists, deleting it." + RESET)
+        #     os.system(delete_command)
+        #     print(BLUE + "[i]\tWorld folder deleted." + RESET)
 
         # Check for the file first:
         check_and_create_run_file(operating_system)
