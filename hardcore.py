@@ -115,13 +115,14 @@ def check_eula_agreement():
 def updateMOTD(deaths):
     file_path = "server.properties"
     temp_file_path = "temp.properties"
-    hardcore_key = "motd=A Minecraft Server"
+    default_motd = "motd=A Minecraft Server"
+    hardcore_key = f"motd=Deaths: {deaths - 1}"
     hardcore_new = f"motd=Deaths: {deaths}"
 
     try:
         with open(file_path, "r") as input_file, open(temp_file_path, "w") as temp_file:
             for line in input_file:
-                if line.strip() == hardcore_key:
+                if line.strip() == hardcore_key or line.strip() == default_motd:
                     line = hardcore_new + "\n"
                 temp_file.write(line)
 
@@ -436,7 +437,7 @@ if __name__ == "__main__":
 
         try:
             enable_hardcore_mode()
-            updateMOTD(attempt_number)
+            updateMOTD(attempt_number - 1)
         except Exception:
             print(RED + "[!]\tFirst run detected!")
             FIRSTRUN = True
